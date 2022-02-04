@@ -21,8 +21,11 @@
 from PySide2 import QtCore, QtWidgets
 
 
-class Section(QtWidgets.QWidget):
-    def __init__(self, title: str = "", animation_duration: int = 100, parent=None):
+class CollapsableGroup(QtWidgets.QWidget):
+    def __init__(self,
+                 title: str = "",
+                 animation_duration: int = 100,
+                 parent=None):
         super().__init__(parent)
 
         self.animationDuration = animation_duration
@@ -31,6 +34,7 @@ class Section(QtWidgets.QWidget):
         self.toggleAnimation = QtCore.QParallelAnimationGroup(self)
         self.contentArea = QtWidgets.QScrollArea(self)
         self.mainLayout = QtWidgets.QGridLayout(self)
+        # self.mainLayout.setSizeConstraint(QtWidgets.QLayout.SetMinAndMaxSize)
 
         self.toggleButton.setStyleSheet("QToolButton {border: none;}")
         self.toggleButton.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
@@ -64,7 +68,7 @@ class Section(QtWidgets.QWidget):
 
         self.toggleButton.toggled.connect(self.toggle)
 
-    def setContentLayout(self, contentLayout: QtWidgets.QLayout):
+    def setContentLayout(self, contentLayout: QtWidgets.QLayout, collapsed: bool = True):
         layout = self.contentArea.layout()
         if layout:
             layout.deleteLater()
@@ -84,6 +88,8 @@ class Section(QtWidgets.QWidget):
         contentAnimation.setDuration(self.animationDuration)
         contentAnimation.setStartValue(0)
         contentAnimation.setEndValue(contentHeight)
+
+        self.toggleButton.setChecked(not collapsed)
 
     def toggle(self, collapsed):
         if collapsed:
