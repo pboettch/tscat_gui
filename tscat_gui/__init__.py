@@ -40,6 +40,13 @@ class _TSCatConcatenateTablePM(QtCore.QConcatenateTablesProxyModel):
         return indexes
 
 
+class _EventViewColumnsExcludedSortFilterProxyModel(QtCore.QSortFilterProxyModel):
+    def sort(self, column: int, order: QtCore.Qt.SortOrder = QtCore.Qt.SortOrder.AscendingOrder) -> None:
+        if column in [3, 4, 5]:
+            return
+        super().sort(column, order)
+
+
 class _TrashAlwaysTopOrBottomSortFilterModel(QtCore.QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -251,7 +258,7 @@ class TSCatGUI(QtWidgets.QWidget):
         # Event Model and View
         self.event_model = _TSCatConcatenateTablePM(self)
 
-        self.events_sort_model = QtCore.QSortFilterProxyModel()
+        self.events_sort_model = _EventViewColumnsExcludedSortFilterProxyModel()
         self.events_sort_model.setSourceModel(self.event_model)
 
         self.events_view = QtWidgets.QTableView()
