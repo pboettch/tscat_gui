@@ -1,20 +1,20 @@
 import datetime as dt
-import itertools
 import os
 import pickle
 import tempfile
-from typing import Dict, Any, Union, cast, List, Sequence
+from typing import Any, Dict, List, Sequence, Union, cast
 
-from PySide6.QtCore import QModelIndex, QAbstractItemModel, QPersistentModelIndex, Qt, QMimeData, Signal, QUrl
+import itertools
+from PySide6.QtCore import QAbstractItemModel, QMimeData, QModelIndex, QPersistentModelIndex, QUrl, Qt, Signal
+
 from tscat import _Catalogue
-
-from .actions import Action, GetCataloguesAction, GetCatalogueAction, CreateEntityAction, RemoveEntitiesAction, \
-    SetAttributeAction, DeleteAttributeAction, MoveToTrashAction, RestoreFromTrashAction, ImportCanonicalizedDictAction, \
-    DeletePermanentlyAction, RestorePermanentlyDeletedAction
+from .actions import Action, CreateEntityAction, DeleteAttributeAction, DeletePermanentlyAction, GetCatalogueAction, \
+    GetCataloguesAction, ImportCanonicalizedDictAction, MoveToTrashAction, RemoveEntitiesAction, RestoreFromTrashAction, \
+    RestorePermanentlyDeletedAction, SetAttributeAction
 from .catalog_model import CatalogModel
 from .driver import tscat_driver
-from .nodes import Node, CatalogNode, TrashNode, RootNode, NamedNode
-from ..model_base.constants import UUIDDataRole, EntityRole
+from .nodes import CatalogNode, FolderNode, NamedNode, Node, RootNode, TrashNode
+from ..model_base.constants import EntityRole, UUIDDataRole
 from ..utils.import_export import export_to_json
 
 
@@ -51,113 +51,130 @@ class TscatRootModel(QAbstractItemModel):
             else:
                 self.beginResetModel()
                 self._root.set_children([self._trash])
-                self._root.append_children(list(map(CatalogNode, action.catalogues)))
+
+                for c in action.catalogues:
+                    root = self._root
+                    if hasattr(c, 'Path') and isinstance(c.Path, list) and all(isinstance(x, str) for x in c.Path):
+                        for folder in c.Path:
+                            for child in root.children:
+                                if isinstance(child, FolderNode) and child.name == folder:
+                                    root = child
+                                    break
+                            else:
+                                new_folder = FolderNode(folder)
+                                root.append_child(new_folder)
+                                root = new_folder
+
+                    root.append_child(CatalogNode(c))
                 self.endResetModel()
 
-        elif isinstance(action, GetCatalogueAction):
-            for row, child in enumerate(self._root.children):
-                if child.uuid == action.uuid:
-                    index = self.index(row, 0, QModelIndex())
-                    self.dataChanged.emit(index, index)  # type: ignore
-                    return
+        # elif isinstance(action, GetCatalogueAction):
+        #     for row, child in enumerate(self._root.children):
+        #         if child.uuid == action.uuid:
+        #             index = self.index(row, 0, QModelIndex())
+        #             self.dataChanged.emit(index, index)  # type: ignore
+        #             return
 
-            for row, child in enumerate(self._trash.children):
-                if child.uuid == action.uuid:
-                    index = self.index(row, 0, self._trash_index())
-                    self.dataChanged.emit(index, index)  # type: ignore
+#             for row, child in enumerate(self._trash.children):
+#                 if child.uuid == action.uuid:
+#                     index = self.index(row, 0, self._trash_index())
+#                     self.dataChanged.emit(index, index)  # type: ignore
 
-        elif isinstance(action, CreateEntityAction):
-            if isinstance(action.entity, _Catalogue):
-                self.beginInsertRows(QModelIndex(), len(self._root.children), len(self._root.children))
-                node = CatalogNode(action.entity)
-                self._root.append_child(node)
-                self.endInsertRows()
+#         elif isinstance(action, CreateEntityAction):
+#             if isinstance(action.entity, _Catalogue):
+#                 self.beginInsertRows(QModelIndex(), len(self._root.children), len(self._root.children))
+#                 node = CatalogNode(action.entity)
+#                 self._root.append_child(node)
+#                 self.endInsertRows()
 
-        elif isinstance(action, (RemoveEntitiesAction, DeletePermanentlyAction)):
-            for row, c in reversed(list(enumerate(self._root.children))):
-                if c.uuid in action.uuids:
-                    self.beginRemoveRows(QModelIndex(), row, row)
-                    self._root.remove_child(c)
-                    self.endRemoveRows()
-                    if c.uuid in self._catalogues:
-                        del self._catalogues[c.uuid]
+#         elif isinstance(action, (RemoveEntitiesAction, DeletePermanentlyAction)):
+#             for row, c in reversed(list(enumerate(self._root.children))):
+#                 if c.uuid in action.uuids:
+#                     self.beginRemoveRows(QModelIndex(), row, row)
+#                     self._root.remove_child(c)
+#                     self.endRemoveRows()
+#                     if c.uuid in self._catalogues:
+#                         del self._catalogues[c.uuid]
 
-            for row, c in reversed(list(enumerate(self._trash.children))):
-                if c.uuid in action.uuids:
-                    self.beginRemoveRows(self._trash_index(), row, row)
-                    self._trash.remove_child(c)
-                    self.endRemoveRows()
+#             for row, c in reversed(list(enumerate(self._trash.children))):
+#                 if c.uuid in action.uuids:
+#                     self.beginRemoveRows(self._trash_index(), row, row)
+#                     self._trash.remove_child(c)
+#                     self.endRemoveRows()
 
-        elif isinstance(action, MoveToTrashAction):
-            for row, c in reversed(list(enumerate(self._root.children))):
-                if c.uuid in action.uuids:
-                    self.beginRemoveRows(QModelIndex(), row, row)
-                    self._root.remove_child(c)
-                    self.endRemoveRows()
+#         elif isinstance(action, MoveToTrashAction):
+#             for row, c in reversed(list(enumerate(self._root.children))):
+#                 if c.uuid in action.uuids:
+#                     self.beginRemoveRows(QModelIndex(), row, row)
+#                     self._root.remove_child(c)
+#                     self.endRemoveRows()
 
-                    self.beginInsertRows(self._trash_index(), len(self._trash.children), len(self._trash.children))
-                    self._trash.append_child(c)
-                    self.endInsertRows()
+#                     self.beginInsertRows(self._trash_index(), len(self._trash.children), len(self._trash.children))
+#                     self._trash.append_child(c)
+#                     self.endInsertRows()
 
-        elif isinstance(action, RestoreFromTrashAction):
-            for row, c in reversed(list(enumerate(self._trash.children))):
-                if c.uuid in action.uuids:
-                    self.beginRemoveRows(self._trash_index(), row, row)
-                    self._trash.remove_child(c)
-                    self.endRemoveRows()
+#         elif isinstance(action, RestoreFromTrashAction):
+#             for row, c in reversed(list(enumerate(self._trash.children))):
+#                 if c.uuid in action.uuids:
+#                     self.beginRemoveRows(self._trash_index(), row, row)
+#                     self._trash.remove_child(c)
+#                     self.endRemoveRows()
 
-                    self.beginInsertRows(QModelIndex(), len(self._root.children), len(self._root.children))
-                    self._root.append_child(c)
-                    self.endInsertRows()
+#                     self.beginInsertRows(QModelIndex(), len(self._root.children), len(self._root.children))
+#                     self._root.append_child(c)
+#                     self.endInsertRows()
 
-        elif isinstance(action, RestorePermanentlyDeletedAction):
-            for e in action.deleted_entities:
-                if isinstance(e.restored_entity, _Catalogue):
-                    node = CatalogNode(e.restored_entity)
-                    if e.restored_entity.is_removed():
-                        self.beginInsertRows(self._trash_index(), len(self._trash.children), len(self._trash.children))
-                        self._trash.append_child(node)
-                        self.endInsertRows()
-                    else:
-                        self.beginInsertRows(QModelIndex(), len(self._root.children), len(self._root.children))
-                        self._root.append_child(node)
-                        self.endInsertRows()
+#         elif isinstance(action, RestorePermanentlyDeletedAction):
+#             for e in action.deleted_entities:
+#                 if isinstance(e.restored_entity, _Catalogue):
+#                     node = CatalogNode(e.restored_entity)
+#                     if e.restored_entity.is_removed():
+#                         self.beginInsertRows(self._trash_index(), len(self._trash.children), len(self._trash.children))
+#                         self._trash.append_child(node)
+#                         self.endInsertRows()
+#                     else:
+#                         self.beginInsertRows(QModelIndex(), len(self._root.children), len(self._root.children))
+#                         self._root.append_child(node)
+#                         self.endInsertRows()
 
-        elif isinstance(action, (SetAttributeAction, DeleteAttributeAction)):
-            for c in filter(lambda x: isinstance(x, _Catalogue), action.entities):
-                assert isinstance(c, _Catalogue)
-                for row, child in enumerate(self._root.children):
-                    if isinstance(child, CatalogNode) and child.uuid == c.uuid:
-                        child.node = c
-                        index = self.index(row, 0, QModelIndex())
-                        self.dataChanged.emit(index, index)  # type: ignore
+#         elif isinstance(action, (SetAttributeAction, DeleteAttributeAction)):
+#             for c in filter(lambda x: isinstance(x, _Catalogue), action.entities):
+#                 assert isinstance(c, _Catalogue)
+#                 for row, child in enumerate(self._root.children):
+#                     if isinstance(child, CatalogNode) and child.uuid == c.uuid:
+#                         child.node = c
+#                         index = self.index(row, 0, QModelIndex())
+#                         self.dataChanged.emit(index, index)  # type: ignore
 
-                for row, child in enumerate(self._trash.children):
-                    if isinstance(child, CatalogNode) and child.uuid == c.uuid:
-                        child.node = c
-                        index = self.index(row, 0, self._trash_index())
-                        self.dataChanged.emit(index, index)  # type: ignore
+#                 for row, child in enumerate(self._trash.children):
+#                     if isinstance(child, CatalogNode) and child.uuid == c.uuid:
+#                         child.node = c
+#                         index = self.index(row, 0, self._trash_index())
+#                         self.dataChanged.emit(index, index)  # type: ignore
 
-        elif isinstance(action, ImportCanonicalizedDictAction):
-            self.beginInsertRows(QModelIndex(),
-                                 len(self._root.children),
-                                 len(self._root.children) + len(action.catalogues) - 1)
-            self._root.append_children(list(map(CatalogNode, action.catalogues)))
-            self.endInsertRows()
+#         elif isinstance(action, ImportCanonicalizedDictAction):
+#             self.beginInsertRows(QModelIndex(),
+#                                  len(self._root.children),
+#                                  len(self._root.children) + len(action.catalogues) - 1)
+#             self._root.append_children(list(map(CatalogNode, action.catalogues)))
+#             self.endInsertRows()
 
     def catalog(self, uuid: str) -> CatalogModel:
         if uuid not in self._catalogues:
-            for child in itertools.chain(self._root.children, self._trash.children):
-                if uuid == child.uuid:
+            # DFS search for the CatalogNode with the given uuid
+            stack = [self._root]
+
+            while stack:
+                node = stack.pop()
+                if isinstance(node, CatalogNode) and node.uuid == uuid:
+                    catalogue_model = CatalogModel(node)
+                    self._catalogues[uuid] = catalogue_model
+                    tscat_driver.do(GetCatalogueAction(None, removed_items=False, uuid=uuid))
                     break
-            else:
-                assert False
 
-            assert isinstance(child, CatalogNode)
-            catalogue_model = CatalogModel(child)
-            self._catalogues[uuid] = catalogue_model
-            tscat_driver.do(GetCatalogueAction(None, removed_items=False, uuid=uuid))
-
+                # Add the children to the stack in reverse order
+                # to ensure leftmost children are processed first
+                stack.extend(reversed(node.children))
         return self._catalogues[uuid]
 
     def index_from_uuid(self, uuid: str, parent=QModelIndex()) -> QModelIndex:
