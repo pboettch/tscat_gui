@@ -172,9 +172,9 @@ class TscatRootModel(QAbstractItemModel):
                     tscat_driver.do(GetCatalogueAction(None, removed_items=False, uuid=uuid))
                     break
 
-                # Add the children to the stack in reverse order
-                # to ensure leftmost children are processed first
-                stack.extend(reversed(node.children))
+                if not isinstance(node, CatalogNode):  # we do not want to search in Catalogue's children
+                    stack.extend(node.children)
+
         return self._catalogues[uuid]
 
     def index_from_uuid(self, uuid: str, parent=QModelIndex()) -> QModelIndex:
@@ -307,6 +307,18 @@ class TscatRootModel(QAbstractItemModel):
 
     def catalogue_nodes(self, in_trash: bool) -> Sequence[CatalogNode]:
         if in_trash:
-            return self._trash.children
+            stack = list(self._trash.children[:])
         else:
-            return self._root.children
+            stack = list(self._root.children[:])
+
+        catalogues: List[CatalogNode] = []
+
+        while stack:
+            node = stack.pop()
+            if isinstance(node, CatalogNode):
+                catalogues.append(node)
+
+            if not isinstance(node, (CatalogNode, TrashNode)):  # we do not want to search in Catalogue's children
+                stack.extend(node.children)
+
+        return catalogues
