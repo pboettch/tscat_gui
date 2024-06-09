@@ -157,6 +157,3 @@ class FolderNode(NamedNode):
     @property
     def name(self) -> str:
         return self._name
-
-    def flags(self):
-        return QtCore.Qt.ItemIsEnabled # super().flags() | QtCore.Qt.ItemIsDragEnabled | QtCore.Qt.ItemIsDropEnabled  # type: ignore
