@@ -117,6 +117,7 @@ class TscatRootModel(QAbstractItemModel):
 
                 # in case a catalogueModel was created for this catalogue, remove it
                 if uuid in self._catalogues:
+                    self._catalogues[uuid].deleteLater()
                     del self._catalogues[uuid]
 
         elif isinstance(action, (MoveToTrashAction, RestoreFromTrashAction)):  # Move to Trash exists only for Catalogs
