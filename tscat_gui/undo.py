@@ -2,16 +2,17 @@ import abc
 import datetime as dt
 import os
 from copy import deepcopy
-from typing import Union, Optional, Type, List
+from typing import List, Optional, Type, Union
 
-import tscat
 from PySide6 import QtGui
 
+import tscat
 from .model_base.constants import PathAttributeName
 from .state import AppState
-from .tscat_driver.actions import CreateEntityAction, RemoveEntitiesAction, SetAttributeAction, DeleteAttributeAction, \
-    AddEventsToCatalogueAction, RemoveEventsFromCatalogueAction, MoveToTrashAction, RestoreFromTrashAction, \
-    ImportCanonicalizedDictAction, DeletePermanentlyAction, RestorePermanentlyDeletedAction, _DeletedEntity
+from .tscat_driver.actions import AddEventsToCatalogueAction, CreateEntityAction, DeleteAttributeAction, \
+    DeletePermanentlyAction, ImportCanonicalizedDictAction, MoveToTrashAction, RemoveEntitiesAction, \
+    RemoveEventsFromCatalogueAction, RestoreFromTrashAction, RestorePermanentlyDeletedAction, SetAttributeAction, \
+    _DeletedEntity
 
 
 class _EntityBased(QtGui.QUndoCommand):
@@ -341,3 +342,35 @@ class AddEventsToCatalogue(_EntityBased):
         tscat_model.do(RemoveEventsFromCatalogueAction(None, self.event_uuids, self.catalogue_uuid))
 
         self._select([self.catalogue_uuid], type=tscat._Catalogue)
+
+
+class CreateOrSetCataloguePath(_EntityBased):
+    def __init__(self, state: AppState,
+                 path: List[str], catalogue_uuids: List[str], parent=None):
+        super().__init__(state, parent)
+
+        print(path, catalogue_uuids)
+
+        self._select_state.selected_catalogues = catalogue_uuids
+
+        self.setText(f'Move catalogues to {"/".join(path)}')
+
+        self.path = path
+        self.previous_paths = [entity.__dict__[PathAttributeName] if hasattr(entity, PathAttributeName) else []
+                               for entity in self._mapped_selected_entities()]
+
+    def _redo(self) -> None:
+        def action_callback(_: SetAttributeAction) -> None:
+            self._select(self._selected_entities())
+
+        from .tscat_driver.model import tscat_model
+        tscat_model.do(SetAttributeAction(action_callback, self._selected_entities(), PathAttributeName,
+                                          [self.path] * len(self._selected_entities())))
+
+    def _undo(self) -> None:
+        def action_callback(_: SetAttributeAction) -> None:
+            self._select(self._selected_entities())
+
+        from .tscat_driver.model import tscat_model
+        tscat_model.do(SetAttributeAction(action_callback, self._selected_entities(), PathAttributeName,
+                                          self.previous_paths))

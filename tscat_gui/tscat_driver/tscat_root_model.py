@@ -1,24 +1,21 @@
-import datetime as dt
-import os
 import pickle
-import tempfile
 from typing import Any, Dict, List, Optional, Sequence, Union, cast
 
 from PySide6.QtCore import QAbstractItemModel, QMimeData, QModelIndex, QPersistentModelIndex, QUrl, Qt, Signal
 
 from tscat import _Catalogue
 from .actions import Action, CreateEntityAction, DeleteAttributeAction, DeletePermanentlyAction, GetCatalogueAction, \
-    GetCataloguesAction, ImportCanonicalizedDictAction, MoveToTrashAction, RemoveEntitiesAction, RestoreFromTrashAction, \
-    RestorePermanentlyDeletedAction, SetAttributeAction
+    GetCataloguesAction, ImportCanonicalizedDictAction, MoveToTrashAction, RemoveEntitiesAction, \
+    RestoreFromTrashAction, RestorePermanentlyDeletedAction, SetAttributeAction
 from .catalog_model import CatalogModel
 from .driver import tscat_driver
 from .nodes import CatalogNode, FolderNode, NamedNode, Node, RootNode, TrashNode
 from ..model_base.constants import EntityRole, PathAttributeName, UUIDDataRole
-from ..utils.import_export import export_to_json
 
 
 class TscatRootModel(QAbstractItemModel):
     events_dropped_on_catalogue = Signal(str, list)
+    catalogues_dropped_on_folder = Signal(list, list)
 
     def __init__(self) -> None:
         super().__init__()
@@ -289,9 +286,15 @@ class TscatRootModel(QAbstractItemModel):
     def canDropMimeData(self, data: QMimeData, action: Qt.DropAction,
                         row: int, column: int,
                         parent: Union[QModelIndex, QPersistentModelIndex]) -> bool:
-        if not data.hasFormat('application/x-tscat-event-uuid-list'):
-            return False
-        return True
+        # on Catalogues, we can drop events
+        if isinstance(parent.data(EntityRole), _Catalogue):
+            if data.hasFormat('application/x-tscat-event-uuid-list'):
+                return True
+        # on everything else except Trash we can drop catalogues - because it is a FolderNode
+        else:
+            if parent != self._trash_index() and data.hasFormat('application/x-tscat-catalogue-uuid-list'):
+                return True
+        return False
 
     def dropMimeData(self, data: QMimeData, action: Qt.DropAction,
                      row: int, column: int,
@@ -302,9 +305,13 @@ class TscatRootModel(QAbstractItemModel):
         if action == Qt.DropAction.IgnoreAction:
             return True
 
-        self.events_dropped_on_catalogue.emit(parent.data(UUIDDataRole),
-                                              pickle.loads(
-                                                  data.data('application/x-tscat-event-uuid-list')))  # type: ignore
+        if data.hasFormat('application/x-tscat-event-uuid-list'):
+            self.events_dropped_on_catalogue.emit(parent.data(UUIDDataRole),
+                                                  pickle.loads(
+                                                      data.data('application/x-tscat-event-uuid-list')))  # type: ignore
+        elif data.hasFormat('application/x-tscat-catalogue-uuid-list'):
+            uuids = pickle.loads(data.data('application/x-tscat-catalogue-uuid-list'))
+            self.catalogues_dropped_on_folder.emit(self.current_path(parent), uuids)
 
         return True
 
@@ -315,24 +322,23 @@ class TscatRootModel(QAbstractItemModel):
         mime_data = super().mimeData(indexes)
 
         urls: List[QUrl] = []
-        for index in indexes:
-            now = dt.datetime.now().isoformat()
-            catalogue = self.data(index, EntityRole)
+        # for index in indexes:
+        #     now = dt.datetime.now().isoformat()
+        #     catalogue = self.data(index, EntityRole)
 
-            path = os.path.join(tempfile.gettempdir(), 'tscat_gui', f'{catalogue.name}-{now}-export.json')
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+        #     path = os.path.join(tempfile.gettempdir(), 'tscat_gui', f'{catalogue.name}-{now}-export.json')
+        #     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-            print('exporting', catalogue, path)
-            result = export_to_json(path, [catalogue.uuid])
+        #     print('exporting', catalogue, path)
+        #     result = export_to_json(path, [catalogue.uuid])
 
-            if result is None:
-                path_url = QUrl.fromLocalFile(path)
-                urls.append(path_url)
-
+        #     if result is None:
+        #         path_url = QUrl.fromLocalFile(path)
+        #         urls.append(path_url)
         mime_data.setUrls(urls)
 
-        print('dragging')
-
+        mime_data.setData('application/x-tscat-catalogue-uuid-list', pickle.dumps([self.data(index, UUIDDataRole)
+                                                                                   for index in indexes]))
         return mime_data
 
     def catalogue_nodes(self, in_trash: bool) -> Sequence[CatalogNode]:
